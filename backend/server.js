@@ -20,32 +20,37 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-/* ================== CORS FIX ================== */
+/* ================== GLOBAL ERROR LOGGING ================== */
+process.on("unhandledRejection", (err) => {
+  console.error("🔥 Unhandled Rejection:", err);
+});
 
-// Allow local + deployed frontend + Vercel preview URLs
+process.on("uncaughtException", (err) => {
+  console.error("🔥 Uncaught Exception:", err);
+});
+
+/* ================== CORS ================== */
+
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
-  process.env.FRONTEND_URL, // your deployed frontend
+  process.env.FRONTEND_URL,
 ];
 
-// Smart CORS handler
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests like Postman or server-to-server
       if (!origin) return callback(null, true);
 
-      // Allow exact match OR Vercel preview URLs
       if (
         allowedOrigins.includes(origin) ||
         origin.endsWith(".vercel.app")
       ) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(new Error("CORS not allowed"));
+        return callback(null, true);
       }
+
+      console.log("❌ Blocked by CORS:", origin);
+      return callback(new Error("CORS not allowed"));
     },
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
@@ -53,7 +58,6 @@ app.use(
   })
 );
 
-// Handle preflight requests
 app.options("*", cors());
 
 /* ================== MIDDLEWARE ================== */
@@ -65,9 +69,11 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-/* ================== DATABASE ================== */
+/* ================== HEALTH CHECK ================== */
 
-connectDB();
+app.get("/", (req, res) => {
+  res.send("🚀 Restaurant API Running");
+});
 
 /* ================== ROUTES ================== */
 
@@ -79,28 +85,39 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/taxes", taxRoutes);
 app.use("/api/cafe-status", cafeStatusRoutes);
 
-/* ================== HEALTH CHECK ================== */
-
-app.get("/", (req, res) => {
-  res.send("🚀 Restaurant API Running");
-});
-
 /* ================== ERROR HANDLER ================== */
 
 app.use((err, req, res, next) => {
-  console.error("🔥 Error:", err.message);
+  console.error("🔥 Express Error:", err.message);
   res.status(500).json({
     success: false,
     message: err.message || "Server Error",
   });
 });
 
+/* ================== DB CONNECTION (SAFE) ================== */
+
+const startServer = async () => {
+  try {
+    if (!process.env.MONGO_URI) {
+      throw new Error("❌ MONGO_URI not defined");
+    }
+
+    await connectDB();
+    console.log("✅ DB Connected");
+  } catch (error) {
+    console.error("❌ DB Connection Failed:", error.message);
+  }
+};
+
+startServer();
+
 /* ================== SERVER ================== */
 
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on ports ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
   });
 }
 
